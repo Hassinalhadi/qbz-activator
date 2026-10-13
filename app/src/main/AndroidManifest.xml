@@ -9,19 +9,25 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.AppCompat.DayNight.NoActionBar">
 
-        <!-- Modern LSPosed / LibXposed metadata -->
+        <!-- Modern & Legacy LSPosed metadata -->
         <meta-data
             android:name="xposedmodule"
             android:value="true" />
         <meta-data
             android:name="xposeddescription"
-            android:value="QBZ (Saned Assistant) VIP Activator &amp; Dialog Bypass" />
+            android:value="QBZ VIP Activator &amp; Dialog Bypass" />
         <meta-data
             android:name="xposedminversion"
             android:value="54" />
         <meta-data
             android:name="xposedscope"
             android:resource="@array/xposed_scope" />
+
+        <!-- LibXposed Provider required for modern LSPosed (API 100+) -->
+        <provider
+            android:name="io.github.libxposed.service.XposedProvider"
+            android:authorities="dev.qbz.activator.xposed.provider"
+            android:exported="true" />
 
         <activity
             android:name=".MainActivity"
