@@ -1,0 +1,2 @@
+-keep class dev.qbz.activator.** { *; }
+-keep class io.github.libxposed.** { *; }

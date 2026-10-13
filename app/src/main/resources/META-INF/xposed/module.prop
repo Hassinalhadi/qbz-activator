@@ -1,0 +1,4 @@
+version=1.0.0
+versionCode=100
+minApi=100
+targetApi=102
