@@ -2,6 +2,6 @@
 <resources>
     <string-array name="xposed_scope">
         <item>net.jahez.lsposed</item>
-        <item>com.muzahid.gps</item>
+        <item>net.jahez.fleets</item>
     </string-array>
 </resources>

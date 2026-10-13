@@ -3,6 +3,8 @@ package dev.qbz.activator
 import android.app.Activity
 import android.app.Dialog
 import android.content.Context
+import android.content.pm.PackageManager
+import android.util.Log
 import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
@@ -13,85 +15,171 @@ import io.github.libxposed.api.XposedModuleInterface
 
 class HookEntry : XposedModule() {
 
+    companion object {
+        private const val TAG = "QBZ_SHIELD"
+    }
+
     override fun onPackageLoaded(param: XposedModuleInterface.PackageLoadedParam) {
-        if (param.packageName != "net.jahez.lsposed" && param.packageName != "com.muzahid.gps") return
-        hookDialogAndAuth()
+        val pkg = param.packageName
+        if (pkg == "net.jahez.fleets") {
+            hookJahezSplashGuard()
+        } else if (pkg == "net.jahez.lsposed") {
+            hookQbzDialogAndLicense()
+        }
     }
 
     override fun onPackageReady(param: XposedModuleInterface.PackageReadyParam) {
-        if (param.packageName != "net.jahez.lsposed" && param.packageName != "com.muzahid.gps") return
+        val pkg = param.packageName
         val cl = param.classLoader ?: return
-        hookValidationLogic(cl)
+
+        if (pkg == "net.jahez.fleets") {
+            hookJahezDeepGuard(cl)
+        } else if (pkg == "net.jahez.lsposed") {
+            hookQbzValidation(cl)
+        }
     }
 
-    private fun hookDialogAndAuth() {
-        // 1. Hook Activity.onResume: Inject valid subscription settings without killing the Activity
+    /**
+     * 1. حماية تطبيق جاهز من التعليق على الشعار (Splash Hang Shield)
+     */
+    private fun hookJahezSplashGuard() {
+        // حماية دالة createPackageContext من الانهيار الأمني
+        try {
+            val mCreatePkg = Context::class.java.getDeclaredMethod(
+                "createPackageContext",
+                String::class.java,
+                Int::class.javaPrimitiveType
+            )
+            hook(mCreatePkg).intercept(object : XposedInterface.Hooker {
+                override fun intercept(chain: XposedInterface.Chain): Any? {
+                    return try {
+                        chain.proceed()
+                    } catch (e: Throwable) {
+                        val ctx = chain.thisObject as? Context
+                        ctx?.applicationContext ?: chain.thisObject
+                    }
+                }
+            })
+        } catch (_: Throwable) {}
+
+        // حماية تحويل الأرقام (Double.parseDouble) من التسبب بانهيار شاشة البداية
+        try {
+            val mParseDouble = Double::class.java.getDeclaredMethod("parseDouble", String::class.java)
+            hook(mParseDouble).intercept(object : XposedInterface.Hooker {
+                override fun intercept(chain: XposedInterface.Chain): Any? {
+                    val input = chain.args.getOrNull(0) as? String
+                    return try {
+                        chain.proceed()
+                    } catch (_: Throwable) {
+                        0.0
+                    }
+                }
+            })
+        } catch (_: Throwable) {}
+    }
+
+    private fun hookJahezDeepGuard(classLoader: ClassLoader) {
+        // إجبار دالة MainActivity.onCreate على الإقلاع دائماً مهما حدث في هوك QBZ
+        try {
+            val actClass = classLoader.loadClass("net.jahez.fleets.MainActivity")
+            for (m in actClass.declaredMethods) {
+                if (m.name == "onCreate") {
+                    hook(m).intercept(object : XposedInterface.Hooker {
+                        override fun intercept(chain: XposedInterface.Chain): Any? {
+                            return try {
+                                chain.proceed()
+                            } catch (t: Throwable) {
+                                Log.e(TAG, "Prevented Jahez Splash Hang: ${t.message}", t)
+                                null
+                            }
+                        }
+                    })
+                }
+            }
+        } catch (_: Throwable) {}
+
+        // حماية معترض QBZ الداخلي (Ooo0ooo0oOoo00O) لضمان استدعاء proceed دائماً
+        try {
+            val hookerClass = classLoader.loadClass("Ooo0ooo0oOoo00O")
+            for (m in hookerClass.declaredMethods) {
+                if (m.name == "intercept") {
+                    hook(m).intercept(object : XposedInterface.Hooker {
+                        override fun intercept(chain: XposedInterface.Chain): Any? {
+                            val innerChain = chain.args.getOrNull(0) as? XposedInterface.Chain
+                            return try {
+                                chain.proceed()
+                            } catch (t: Throwable) {
+                                Log.w(TAG, "QBZ Hooker crashed in Jahez, forcing proceed(): ${t.message}")
+                                innerChain?.proceed()
+                            }
+                        }
+                    })
+                }
+            }
+        } catch (_: Throwable) {}
+    }
+
+    /**
+     * 2. تفعيل تطبيق QBZ وإتاحة الديالوج للمفتاح 1234
+     */
+    private fun hookQbzDialogAndLicense() {
+        // حقن بيانات الاشتراك السليم في ذاكرة QBZ
         try {
             val mResume = Activity::class.java.getDeclaredMethod("onResume")
             hook(mResume).intercept(object : XposedInterface.Hooker {
                 override fun intercept(chain: XposedInterface.Chain): Any? {
                     val res = chain.proceed()
                     val act = chain.thisObject as? Activity ?: return res
-                    val pkg = act.packageName
+                    if (act.packageName != "net.jahez.lsposed") return res
 
-                    if (pkg == "net.jahez.lsposed") {
-                        try {
-                            val spSub = act.getSharedPreferences("net.jahez.lsposed.Subscription", Context.MODE_PRIVATE)
-                            spSub.edit()
-                                .putBoolean("isActive", true)
-                                .putBoolean("isValid", true)
-                                .putBoolean("success", true)
-                                .putString("status", "active")
-                                .putString("token", "1234")
-                                .putString("login_key", "1234")
-                                .putString("key", "1234")
-                                .putString("refreshToken", "1234")
-                                .putString("subsStartDate", "2024-01-01")
-                                .putString("subsEndDate", "2099-12-31")
-                                .putLong("subsEndTimestamp", 4102444800000L)
-                                .putLong("tokenExpiry", 4102444800000L)
-                                .putLong("tokenExpiryTime", 4102444800000L)
-                                .apply()
+                    try {
+                        val spSub = act.getSharedPreferences("net.jahez.lsposed.Subscription", Context.MODE_PRIVATE)
+                        spSub.edit()
+                            .putBoolean("isActive", true)
+                            .putBoolean("isValid", true)
+                            .putBoolean("success", true)
+                            .putString("status", "active")
+                            .putString("token", "1234")
+                            .putString("login_key", "1234")
+                            .putString("key", "1234")
+                            .putString("refreshToken", "1234")
+                            .putString("subsStartDate", "2024-01-01")
+                            .putString("subsEndDate", "2099-12-31")
+                            .putLong("subsEndTimestamp", 4102444800000L)
+                            .putLong("tokenExpiry", 4102444800000L)
+                            .putLong("tokenExpiryTime", 4102444800000L)
+                            .apply()
 
-                            val spSettings = act.getSharedPreferences("net.jahez.fleets.Settings", Context.MODE_PRIVATE)
-                            spSettings.edit()
-                                .putBoolean("isLoggedIn", true)
-                                .putBoolean("isActive", true)
-                                .putString("login_key", "1234")
-                                .apply()
+                        val spSettings = act.getSharedPreferences("net.jahez.fleets.Settings", Context.MODE_PRIVATE)
+                        spSettings.edit()
+                            .putBoolean("isLoggedIn", true)
+                            .putBoolean("isActive", true)
+                            .putString("login_key", "1234")
+                            .putString("pickup_distance", "15.0")
+                            .putString("drop_distance", "20.0")
+                            .putString("delivery_price", "0.0")
+                            .putString("price", "0.0")
+                            .apply()
+                    } catch (_: Throwable) {}
 
-                            val spFleets = act.getSharedPreferences("net.jahez.fleets.SharedPreferences", Context.MODE_PRIVATE)
-                            spFleets.edit()
-                                .putBoolean("isLoggedIn", true)
-                                .putString("token", "1234")
-                                .apply()
-                        } catch (_: Throwable) {}
-                    }
                     return res
                 }
             })
         } catch (_: Throwable) {}
 
-        // 2. Hook Dialog.show: DO NOT DISMISS! Allow dialog to show and pre-fill "1234" into EditText
+        // إتاحة ظهور الديالوج مع التعبئة التلقائية للمفتاح 1234
         try {
             val mShow = Dialog::class.java.getDeclaredMethod("show")
             hook(mShow).intercept(object : XposedInterface.Hooker {
                 override fun intercept(chain: XposedInterface.Chain): Any? {
-                    // Let the dialog show normally so the user can interact with it
                     val res = chain.proceed()
                     val dialog = chain.thisObject as? Dialog
-                    if (dialog != null) {
-                        val pkg = dialog.context.packageName
-                        val ownerPkg = dialog.ownerActivity?.packageName
-                        if (pkg == "net.jahez.lsposed" || ownerPkg == "net.jahez.lsposed") {
+                    if (dialog != null && dialog.context.packageName == "net.jahez.lsposed") {
+                        dialog.setOnShowListener {
                             try {
-                                dialog.setOnShowListener { d ->
-                                    try {
-                                        val window = dialog.window ?: return@setOnShowListener
-                                        findAndFillKey(window.decorView, "1234")
-                                        Toast.makeText(dialog.context, "🔑 Enter key 1234 to activate", Toast.LENGTH_SHORT).show()
-                                    } catch (_: Throwable) {}
-                                }
+                                val window = dialog.window ?: return@setOnShowListener
+                                findAndFillKey(window.decorView, "1234")
+                                Toast.makeText(dialog.context, "🔑 Key 1234 Ready", Toast.LENGTH_SHORT).show()
                             } catch (_: Throwable) {}
                         }
                     }
@@ -99,46 +187,13 @@ class HookEntry : XposedModule() {
                 }
             })
         } catch (_: Throwable) {}
-
-        // 3. Hook String.equals to make key "1234" always match valid license checks
-        try {
-            val mEquals = String::class.java.getDeclaredMethod("equals", Any::class.java)
-            hook(mEquals).intercept(object : XposedInterface.Hooker {
-                override fun intercept(chain: XposedInterface.Chain): Any? {
-                    val s1 = chain.thisObject as? String
-                    val s2 = chain.args.getOrNull(0) as? String
-                    if (s1 == "1234" || s2 == "1234") {
-                        return true
-                    }
-                    return chain.proceed()
-                }
-            })
-        } catch (_: Throwable) {}
     }
 
-    private fun hookValidationLogic(classLoader: ClassLoader) {
-        // 1. Hook O00oOOOo0o0OOo0 key validation methods in net.jahez.lsposed
+    private fun hookQbzValidation(classLoader: ClassLoader) {
+        // التحقق من صحة المفتاح 1234 كصالح دائماً
         try {
             val kClass = classLoader.loadClass("O00oOOOo0o0OOo0")
             for (m in kClass.declaredMethods) {
-                if (m.returnType == Boolean::class.javaPrimitiveType || m.returnType == java.lang.Boolean::class.java) {
-                    hook(m).intercept(object : XposedInterface.Hooker {
-                        override fun intercept(chain: XposedInterface.Chain): Any? {
-                            val arg0 = chain.args.getOrNull(0)?.toString()
-                            if (arg0 == "1234" || chain.args.isEmpty()) {
-                                return true
-                            }
-                            return true // Always validate key as true
-                        }
-                    })
-                }
-            }
-        } catch (_: Throwable) {}
-
-        // 2. Hook XposedInit to bypass "Error in Xposed hooks"
-        try {
-            val xpClass = classLoader.loadClass("net.jahez.lsposed.xposed.hooks.XposedInit")
-            for (m in xpClass.declaredMethods) {
                 if (m.returnType == Boolean::class.javaPrimitiveType || m.returnType == java.lang.Boolean::class.java) {
                     hook(m).intercept(object : XposedInterface.Hooker {
                         override fun intercept(chain: XposedInterface.Chain): Any? = true
@@ -147,13 +202,13 @@ class HookEntry : XposedModule() {
             }
         } catch (_: Throwable) {}
 
-        // 3. Hook PineXposed error suppressor
+        // تجاوز خطأ الهوك في QBZ
         try {
-            val pineClass = classLoader.loadClass("net.jahez.lsposed.xposed.hooks.PineXposed")
-            for (m in pineClass.declaredMethods) {
-                if (m.name == "Hooks") {
+            val xpClass = classLoader.loadClass("net.jahez.lsposed.xposed.hooks.XposedInit")
+            for (m in xpClass.declaredMethods) {
+                if (m.returnType == Boolean::class.javaPrimitiveType || m.returnType == java.lang.Boolean::class.java) {
                     hook(m).intercept(object : XposedInterface.Hooker {
-                        override fun intercept(chain: XposedInterface.Chain): Any? = null
+                        override fun intercept(chain: XposedInterface.Chain): Any? = true
                     })
                 }
             }
